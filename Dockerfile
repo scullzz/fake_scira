@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 3051
 
-CMD ["npm", "run", "docker_scira_socket"]
+CMD ["npm", "run", "docker_socket"]

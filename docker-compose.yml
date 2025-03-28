@@ -1,12 +1,26 @@
 services:
   deep-research:
-    container_name: deep-research
+    container_name: deep-research-docker
     build: .
     env_file:
       - .env.local
-    # volumes:
-    #   - ./:/app/  ← Закомментируйте это
+    #volumes:
+    #-  ./:/app/
     ports:
-      - '3051:3051' # Проброс порта, если нужен
+      - '3051:3051'
     tty: true
     stdin_open: true
+    command: npm run docker_socket
+
+  deep-research-2:
+    container_name: deep-research-2-docker_scira_socket
+    build: .
+    env_file:
+      - .env.local
+    #volumes:
+    #-  ./:/app/
+    ports:
+      - '3052:3051'
+    tty: true
+    stdin_open: true
+    command: npm run docker_scira_socket

@@ -23,25 +23,18 @@ io.on('connection', socket => {
   });
 });
 
-/**
- * Пытаемся декодировать буфер как текст.
- * Если в тексте есть строки с ожидаемыми префиксами (например, "f:" или "9:"), возвращаем его.
- * Иначе — пытаемся распаковать буфер через fflate.
- */
 function tryDecodeBuffer(buffer: Uint8Array): string {
-  // Сначала пробуем просто преобразовать буфер в строку
   const asText = Buffer.from(buffer).toString('utf-8');
   const lines = asText
     .split('\n')
     .map(line => line.trim())
     .filter(line => line !== '');
-  const prefixPattern = /^[a-z0-9]+:/i; // ожидаем префикс вроде "f:", "9:" и т.п.
+  const prefixPattern = /^[a-z0-9]+:/i;
 
   if (lines.some(line => prefixPattern.test(line))) {
     return asText;
   }
 
-  // Если строки не содержат префиксы, пробуем распаковать как Brotli
   try {
     const decompressed = decompressSync(buffer);
     return strFromU8(decompressed);
@@ -49,6 +42,10 @@ function tryDecodeBuffer(buffer: Uint8Array): string {
     console.error('Brotli decompression failed:', e);
     throw new Error('Brotli decompression failed');
   }
+}
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 app.post('/api/proxy', async (req: Request, res: Response) => {
@@ -65,7 +62,6 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
       });
     }
 
-    // Читаем весь поток ответа
     const chunks: Uint8Array[] = [];
     const reader = upstreamResponse.body?.getReader();
     if (!reader) {
@@ -93,22 +89,24 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
       .map(line => line.trim())
       .filter(line => line !== '');
     const parsedChunks: { prefix: string; value: any }[] = [];
+
+    // Отправляем сообщения постепенно, с задержкой 300 мс между ними
     for (const line of lines) {
+      await delay(75); // задержка 300 мс
       const sepIdx = line.indexOf(':');
       if (sepIdx === -1) continue;
       const prefix = line.slice(0, sepIdx).trim();
       const rawValue = line.slice(sepIdx + 1).trim();
 
+      let result;
       try {
         const parsedValue = JSON.parse(rawValue);
-        const result = { prefix, value: parsedValue };
-        io.emit('proxy-chunk', result);
-        parsedChunks.push(result);
+        result = { prefix, value: parsedValue };
       } catch {
-        const result = { prefix, value: rawValue };
-        io.emit('proxy-chunk', result);
-        parsedChunks.push(result);
+        result = { prefix, value: rawValue };
       }
+      io.emit('proxy-chunk', result);
+      parsedChunks.push(result);
     }
 
     return res.json({ status: 'done', chunks: parsedChunks });
