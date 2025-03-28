@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
+import { decompressSync, strFromU8 } from 'fflate';
 import { Server } from 'socket.io';
 
 const app = express();
@@ -12,61 +13,111 @@ app.use(cors());
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
-  cors: {
-    origin: '*',
-  },
+  cors: { origin: '*' },
 });
 
 io.on('connection', socket => {
+  console.log('Client connected:', socket.id);
   socket.on('disconnect', () => {
-    console.log('Клиент отключился (Socket.IO):', socket.id);
+    console.log('Client disconnected:', socket.id);
   });
 });
 
+/**
+ * Пытаемся декодировать буфер как текст.
+ * Если в тексте есть строки с ожидаемыми префиксами (например, "f:" или "9:"), возвращаем его.
+ * Иначе — пытаемся распаковать буфер через fflate.
+ */
+function tryDecodeBuffer(buffer: Uint8Array): string {
+  // Сначала пробуем просто преобразовать буфер в строку
+  const asText = Buffer.from(buffer).toString('utf-8');
+  const lines = asText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '');
+  const prefixPattern = /^[a-z0-9]+:/i; // ожидаем префикс вроде "f:", "9:" и т.п.
+
+  if (lines.some(line => prefixPattern.test(line))) {
+    return asText;
+  }
+
+  // Если строки не содержат префиксы, пробуем распаковать как Brotli
+  try {
+    const decompressed = decompressSync(buffer);
+    return strFromU8(decompressed);
+  } catch (e) {
+    console.error('Brotli decompression failed:', e);
+    throw new Error('Brotli decompression failed');
+  }
+}
+
 app.post('/api/proxy', async (req: Request, res: Response) => {
   try {
-    const response = await fetch('https://scira.ai/api/search', {
+    const upstreamResponse = await fetch('https://scira.ai/api/search', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: '*/*',
-      },
+      headers: { 'Content-Type': 'application/json', Accept: '*/*' },
       body: JSON.stringify(req.body),
     });
 
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: `Ошибка API: ${response.status} ${response.statusText}`,
+    if (!upstreamResponse.ok) {
+      return res.status(upstreamResponse.status).json({
+        error: `API Error: ${upstreamResponse.statusText}`,
       });
     }
 
-    const reader = response.body?.getReader();
+    // Читаем весь поток ответа
+    const chunks: Uint8Array[] = [];
+    const reader = upstreamResponse.body?.getReader();
     if (!reader) {
-      return res
-        .status(500)
-        .json({ error: 'Не удалось получить стриминговый ответ' });
+      return res.status(500).json({ error: 'Failed to get response stream' });
     }
-
-    const decoder = new TextDecoder();
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value) chunks.push(value);
+    }
+    const fullBuffer = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)));
 
-      const chunk = decoder.decode(value, { stream: true });
-
-      io.emit('proxy-chunk', chunk);
+    // Пытаемся декодировать буфер
+    let rawText: string;
+    try {
+      rawText = tryDecodeBuffer(new Uint8Array(fullBuffer));
+    } catch (decodeError: any) {
+      console.error('Error decoding buffer:', decodeError);
+      return res.status(500).json({ error: decodeError.message });
     }
 
-    return res.json({ status: 'done' });
+    // Парсинг построчного ответа
+    const lines = rawText
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line !== '');
+    const parsedChunks: { prefix: string; value: any }[] = [];
+    for (const line of lines) {
+      const sepIdx = line.indexOf(':');
+      if (sepIdx === -1) continue;
+      const prefix = line.slice(0, sepIdx).trim();
+      const rawValue = line.slice(sepIdx + 1).trim();
+
+      try {
+        const parsedValue = JSON.parse(rawValue);
+        const result = { prefix, value: parsedValue };
+        io.emit('proxy-chunk', result);
+        parsedChunks.push(result);
+      } catch {
+        const result = { prefix, value: rawValue };
+        io.emit('proxy-chunk', result);
+        parsedChunks.push(result);
+      }
+    }
+
+    return res.json({ status: 'done', chunks: parsedChunks });
   } catch (error: any) {
-    console.error('Ошибка запроса:', error);
-    return res
-      .status(500)
-      .json({ error: 'Ошибка проксирования: ' + error.message });
+    console.error('Proxy error:', error);
+    return res.status(500).json({ error: 'Proxy error: ' + error.message });
   }
 });
 
 httpServer.listen(port, () => {
-  console.log(`Socket is running on port: ${port}`);
+  console.log(`Socket.IO server listening on port ${port}`);
 });

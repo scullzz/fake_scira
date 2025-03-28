@@ -1,9 +1,13 @@
 import { createFireworks } from '@ai-sdk/fireworks';
 import { createOpenAI } from '@ai-sdk/openai';
-import { extractReasoningMiddleware, LanguageModelV1, wrapLanguageModel } from 'ai';
+import {
+  extractReasoningMiddleware,
+  LanguageModelV1,
+  wrapLanguageModel,
+} from 'ai';
 import { getEncoding } from 'js-tiktoken';
-import { RecursiveCharacterTextSplitter } from './text-splitter';
 
+import { RecursiveCharacterTextSplitter } from './text-splitter';
 
 // Providers
 const openai = process.env.OPENAI_KEY
@@ -33,9 +37,7 @@ const o3MiniModel = openai?.('o3-mini-2025-01-31', {
 
 const deepSeekR1Model = fireworks
   ? wrapLanguageModel({
-      model: fireworks(
-        'accounts/fireworks/models/deepseek-r1',
-      ) as LanguageModelV1,
+      model: fireworks('accounts/fireworks/models/qwq-32b') as LanguageModelV1,
       middleware: extractReasoningMiddleware({ tagName: 'think' }),
     })
   : undefined;

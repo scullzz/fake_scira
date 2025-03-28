@@ -4,7 +4,9 @@ services:
     build: .
     env_file:
       - .env.local
-    volumes:
-      -  ./:/app/
+    # volumes:
+    #   - ./:/app/  ← Закомментируйте это
+    ports:
+      - '3051:3051' # Проброс порта, если нужен
     tty: true
     stdin_open: true
