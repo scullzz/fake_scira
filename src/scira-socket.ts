@@ -49,6 +49,9 @@ function delay(ms: number) {
 }
 
 app.post('/api/proxy', async (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Transfer-Encoding', 'chunked');
+
   try {
     const upstreamResponse = await fetch('https://scira.ai/api/search', {
       method: 'POST',
@@ -57,15 +60,18 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
     });
 
     if (!upstreamResponse.ok) {
-      return res.status(upstreamResponse.status).json({
-        error: `API Error: ${upstreamResponse.statusText}`,
-      });
+      res.status(upstreamResponse.status);
+      res.write(
+        JSON.stringify({ error: `API Error: ${upstreamResponse.statusText}` }),
+      );
+      return res.end();
     }
 
     const chunks: Uint8Array[] = [];
     const reader = upstreamResponse.body?.getReader();
     if (!reader) {
-      return res.status(500).json({ error: 'Failed to get response stream' });
+      res.write(JSON.stringify({ error: 'Failed to get response stream' }));
+      return res.end();
     }
     while (true) {
       const { done, value } = await reader.read();
@@ -74,27 +80,27 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
     }
     const fullBuffer = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)));
 
-    // Пытаемся декодировать буфер
     let rawText: string;
     try {
       rawText = tryDecodeBuffer(new Uint8Array(fullBuffer));
     } catch (decodeError: any) {
-      console.error('Error decoding buffer:', decodeError);
-      return res.status(500).json({ error: decodeError.message });
+      res.write(JSON.stringify({ error: decodeError.message }));
+      return res.end();
     }
 
-    // Парсинг построчного ответа
     const lines = rawText
       .split('\n')
       .map(line => line.trim())
       .filter(line => line !== '');
-    const parsedChunks: { prefix: string; value: any }[] = [];
 
-    // Отправляем сообщения постепенно, с задержкой 300 мс между ними
+    res.write('{"status":"done", "chunks":[');
+    let first = true;
+
     for (const line of lines) {
-      await delay(75); // задержка 300 мс
+      await delay(10);
       const sepIdx = line.indexOf(':');
       if (sepIdx === -1) continue;
+
       const prefix = line.slice(0, sepIdx).trim();
       const rawValue = line.slice(sepIdx + 1).trim();
 
@@ -105,14 +111,22 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
       } catch {
         result = { prefix, value: rawValue };
       }
+
       io.emit('proxy-chunk', result);
-      parsedChunks.push(result);
+
+      if (!first) {
+        res.write(',');
+      }
+      first = false;
+      res.write(JSON.stringify(result));
     }
 
-    return res.json({ status: 'done', chunks: parsedChunks });
+    res.write(']}');
+    res.end();
   } catch (error: any) {
-    console.error('Proxy error:', error);
-    return res.status(500).json({ error: 'Proxy error: ' + error.message });
+    res.status(500);
+    res.write(JSON.stringify({ error: 'Proxy error: ' + error.message }));
+    res.end();
   }
 });
 
