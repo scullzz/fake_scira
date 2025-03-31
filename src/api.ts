@@ -1,10 +1,19 @@
 import cors from 'cors';
 import express, { Request, Response } from 'express';
+import { shuffle } from 'radash';
 
 import { deepResearch, writeFinalAnswer } from './deep-research';
 
 const app = express();
 const port = process.env.PORT || 3051;
+
+//for google proxy
+const API_KEYS = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  ? process.env.GOOGLE_GENERATIVE_AI_API_KEY.split(',')
+      .map(key => key.trim())
+      .filter(Boolean)
+  : [''];
+const API_PROXY_BASE_URL = 'https://generativelanguage.googleapis.com';
 
 app.use(cors());
 app.use(express.json());
@@ -55,6 +64,102 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
     return res
       .status(500)
       .json({ error: 'Ошибка проксирования: ' + error.message });
+  }
+});
+
+app.post('/api/google/streamGenerateContent', async (req, res) => {
+  try {
+    const url =
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:streamGenerateContent?alt=sse';
+
+    const apiKeys = shuffle([...API_KEYS]);
+    const selectedApiKey = apiKeys[0];
+
+    const headers = {
+      accept: '*/*',
+      'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7,uz;q=0.6',
+      'content-type': 'application/json',
+      'x-goog-api-key': selectedApiKey || '',
+    };
+    const payload = {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(req.body),
+    };
+    const response = await fetch(url, payload);
+
+    res.writeHead(
+      response.status,
+      Object.fromEntries(response.headers.entries()),
+    );
+
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        res.write(encoder.encode(chunk));
+      }
+      res.end();
+    } else {
+      res.status(500).json({ error: 'No response body' });
+    }
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ code: 500, message: error.message });
+  }
+});
+
+app.post('/api/google/streamGenerateContentThinking', async (req, res) => {
+  try {
+    const url =
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:streamGenerateContent?alt=sse';
+
+    const apiKeys = shuffle([...API_KEYS]);
+    const selectedApiKey = apiKeys[0];
+
+    const headers = {
+      accept: '*/*',
+      'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7,uz;q=0.6',
+      'content-type': 'application/json',
+      'x-goog-api-key': selectedApiKey || '',
+    };
+    const payload = {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(req.body),
+    };
+    const response = await fetch(url, payload);
+
+    res.writeHead(
+      response.status,
+      Object.fromEntries(response.headers.entries()),
+    );
+
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        res.write(encoder.encode(chunk));
+      }
+      res.end();
+    } else {
+      res.status(500).json({ error: 'No response body' });
+    }
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ code: 500, message: error.message });
   }
 });
 

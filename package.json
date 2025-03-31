@@ -12,6 +12,7 @@
     "docker": "tsx src/run.ts",
     "docker_socket": "node_modules/.bin/tsx src/socket-server.ts",
     "docker_scira_socket": "node_modules/.bin/tsx src/scira-socket.ts",
+    "docker_api": "node_modules/.bin/tsx src/api.ts",
     "docker_sockets:both": "npm run docker_socket & npm run docker_scira_socket",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -44,6 +45,7 @@
     "lodash-es": "^4.17.21",
     "p-limit": "^6.2.0",
     "playwright": "^1.51.1",
+    "radash": "^12.1.0",
     "socket.io": "^4.8.1",
     "uuid": "^9.0.1",
     "zod": "^3.24.1"

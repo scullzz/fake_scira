@@ -24,3 +24,13 @@ services:
     tty: true
     stdin_open: true
     command: npm run docker_scira_socket
+  deep-research-api:
+    container_name: deep-research-3-docker_api
+    build: .
+    env_file:
+      - .env.local
+    ports:
+      - '3053:3051'
+    tty: true
+    stdin_open: true
+    command: npm run docker_api
