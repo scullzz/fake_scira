@@ -49,6 +49,7 @@ function delay(ms: number) {
 }
 
 app.post('/api/proxy', async (req: Request, res: Response) => {
+  const { socketId, ...restBody } = req.body;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Transfer-Encoding', 'chunked');
 
@@ -56,7 +57,7 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
     const upstreamResponse = await fetch('https://scira.ai/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: '*/*' },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(restBody),
     });
 
     if (!upstreamResponse.ok) {
@@ -112,7 +113,7 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
         result = { prefix, value: rawValue };
       }
 
-      io.emit('proxy-chunk', result);
+      io.to(socketId).emit('proxy-chunk', result);
 
       if (!first) {
         res.write(',');
