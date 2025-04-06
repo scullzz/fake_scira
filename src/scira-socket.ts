@@ -52,133 +52,51 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
   const { socketId, ...restBody } = req.body;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Transfer-Encoding', 'chunked');
+  try {
+    const upstreamResponse = await fetch('https://scira.ai/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+      body: JSON.stringify(restBody),
+    });
 
-  if (restBody.group === 'extreme') {
-    try {
-      const upstreamResponse = await fetch('https://scira.ai/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: '*/*' },
-        body: JSON.stringify(restBody),
-      });
-
-      if (!upstreamResponse.ok) {
-        res.status(upstreamResponse.status);
-        res.write(
-          JSON.stringify({
-            error: `API Error: ${upstreamResponse.statusText}`,
-          }),
-        );
-        return res.end();
-      }
-
-      const reader = upstreamResponse.body?.getReader();
-      if (!reader) {
-        res.write(JSON.stringify({ error: 'Failed to get response stream' }));
-        return res.end();
-      }
-
-      res.write('{"status":"done","chunks":[');
-      let firstChunk = true;
-
-      const decoder = new TextDecoder();
-      let leftover = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        let chunkText = decoder.decode(value, { stream: true });
-
-        chunkText = leftover + chunkText;
-
-        const lines = chunkText.split('\n');
-
-        leftover = lines.pop() ?? '';
-
-        for (const rawLine of lines) {
-          const line = rawLine.trim();
-          if (!line) continue;
-
-          const sepIdx = line.indexOf(':');
-          if (sepIdx === -1) continue;
-
-          const prefix = line.slice(0, sepIdx).trim();
-          const rawValue = line.slice(sepIdx + 1).trim();
-
-          let result;
-          try {
-            const parsedValue = JSON.parse(rawValue);
-            result = { prefix, value: parsedValue };
-          } catch {
-            result = { prefix, value: rawValue };
-          }
-
-          io.to(socketId).emit('proxy-chunk', result);
-
-          if (!firstChunk) {
-            res.write(',');
-          } else {
-            firstChunk = false;
-          }
-          res.write(JSON.stringify(result));
-        }
-      }
-      res.write(']}');
-      res.end();
-    } catch (error: any) {
-      res.status(500);
-      res.write(JSON.stringify({ error: 'Proxy error: ' + error.message }));
-      res.end();
+    if (!upstreamResponse.ok) {
+      res.status(upstreamResponse.status);
+      res.write(
+        JSON.stringify({
+          error: `API Error: ${upstreamResponse.statusText}`,
+        }),
+      );
+      return res.end();
     }
-  } else {
-    try {
-      const upstreamResponse = await fetch('https://scira.ai/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: '*/*' },
-        body: JSON.stringify(restBody),
-      });
 
-      if (!upstreamResponse.ok) {
-        res.status(upstreamResponse.status);
-        res.write(
-          JSON.stringify({
-            error: `API Error: ${upstreamResponse.statusText}`,
-          }),
-        );
-        return res.end();
-      }
+    const reader = upstreamResponse.body?.getReader();
+    if (!reader) {
+      res.write(JSON.stringify({ error: 'Failed to get response stream' }));
+      return res.end();
+    }
 
-      const chunks: Uint8Array[] = [];
-      const reader = upstreamResponse.body?.getReader();
-      if (!reader) {
-        res.write(JSON.stringify({ error: 'Failed to get response stream' }));
-        return res.end();
-      }
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) chunks.push(value);
-      }
-      const fullBuffer = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)));
+    res.write('{"status":"done","chunks":[');
+    let firstChunk = true;
 
-      let rawText: string;
-      try {
-        rawText = tryDecodeBuffer(new Uint8Array(fullBuffer));
-      } catch (decodeError: any) {
-        res.write(JSON.stringify({ error: decodeError.message }));
-        return res.end();
-      }
+    const decoder = new TextDecoder();
+    let leftover = '';
 
-      const lines = rawText
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line !== '');
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
 
-      res.write('{"status":"done", "chunks":[');
-      let first = true;
+      let chunkText = decoder.decode(value, { stream: true });
 
-      for (const line of lines) {
-        await delay(10);
+      chunkText = leftover + chunkText;
+
+      const lines = chunkText.split('\n');
+
+      leftover = lines.pop() ?? '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
         const sepIdx = line.indexOf(':');
         if (sepIdx === -1) continue;
 
@@ -195,20 +113,20 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
 
         io.to(socketId).emit('proxy-chunk', result);
 
-        if (!first) {
+        if (!firstChunk) {
           res.write(',');
+        } else {
+          firstChunk = false;
         }
-        first = false;
         res.write(JSON.stringify(result));
       }
-
-      res.write(']}');
-      res.end();
-    } catch (error: any) {
-      res.status(500);
-      res.write(JSON.stringify({ error: 'Proxy error: ' + error.message }));
-      res.end();
     }
+    res.write(']}');
+    res.end();
+  } catch (error: any) {
+    res.status(500);
+    res.write(JSON.stringify({ error: 'Proxy error: ' + error.message }));
+    res.end();
   }
 });
 
