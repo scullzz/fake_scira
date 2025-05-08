@@ -1,7 +1,6 @@
 import { createServer } from 'http';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
-import { decompressSync, strFromU8 } from 'fflate';
 import { Server } from 'socket.io';
 
 const app = express();
@@ -23,41 +22,34 @@ io.on('connection', socket => {
   });
 });
 
-function tryDecodeBuffer(buffer: Uint8Array): string {
-  const asText = Buffer.from(buffer).toString('utf-8');
-  const lines = asText
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '');
-  const prefixPattern = /^[a-z0-9]+:/i;
-
-  if (lines.some(line => prefixPattern.test(line))) {
-    return asText;
-  }
-
-  try {
-    const decompressed = decompressSync(buffer);
-    return strFromU8(decompressed);
-  } catch (e) {
-    console.error('Brotli decompression failed:', e);
-    throw new Error('Brotli decompression failed');
-  }
-}
-
-function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 app.post('/api/proxy', async (req: Request, res: Response) => {
   const { socketId, ...restBody } = req.body;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Transfer-Encoding', 'chunked');
   try {
-    const upstreamResponse = await fetch('https://scira.ai/api/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: '*/*' },
-      body: JSON.stringify(restBody),
-    });
+    const upstreamResponse = await fetch(
+      'https://scira-latest-5rvx.vercel.app/api/search',
+      {
+        method: 'POST',
+        headers: {
+          Accept: '*/*',
+          'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7,uz;q=0.6',
+          'Content-Type': 'application/json',
+          Origin: 'https://scira.ai',
+          Referer: 'https://scira.ai/',
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36',
+          'Sec-Ch-Ua':
+            '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+          'Sec-Ch-Ua-Mobile': '?1',
+          'Sec-Ch-Ua-Platform': '"Android"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
+        },
+        body: JSON.stringify(restBody),
+      },
+    );
 
     if (!upstreamResponse.ok) {
       res.status(upstreamResponse.status);
@@ -124,6 +116,7 @@ app.post('/api/proxy', async (req: Request, res: Response) => {
     res.write(']}');
     res.end();
   } catch (error: any) {
+    console.log(error);
     res.status(500);
     res.write(JSON.stringify({ error: 'Proxy error: ' + error.message }));
     res.end();
